@@ -126,9 +126,9 @@ void printpacket(struct sdtphdr *p)
     printf("\tseqnum:   %d\n",p->seqnum);
     printf("\tacknum:   %d\n",p->acknum);
     printf("\tdatalen:  %d\n",p->datalen);
-    printf("\tflags:    %x\n",p->flags);
+    printf("\tflags:    0x%x\n",p->flags);
     printf("\twindow:   %d\n",p->window);
-    printf("\tchecksum: %x\n",p->checksum);
+    printf("\tchecksum: 0x%x\n",p->checksum);
     if (p->datalen)
         printf("\tdata:     %s\n\n",(char *)p+sizeof(struct sdtphdr));
 }
