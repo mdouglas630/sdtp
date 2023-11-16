@@ -611,7 +611,7 @@ int main(int argc, char *argv[])
 
         // passa o pacote para ser analisado pelo tratador
         //
-        // em caso de retorno = 1, renvia pacote formatado dentro da funcao
+        // em caso de retorno = 1, reenvia pacote formatado dentro da funcao
         if ( handle_socket_sdtp(sdtp_sockid, p) )
         {
             // em caso de envio perdido (simulado), nao faz o envio

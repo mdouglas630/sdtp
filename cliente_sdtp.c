@@ -1,3 +1,8 @@
+/**
+ * @file cliente_sdtp.c
+ * @brief Arquivo que contem uma versao inicial (incompleta) do cliente SDTP
+ * @author Joao Borges
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>

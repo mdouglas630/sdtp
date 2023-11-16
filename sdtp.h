@@ -62,28 +62,7 @@ struct sdtphdr
  *
  */
 int recvtimeout(int s, char *buf, int len, int timeout, 
-        struct sockaddr *dest, int *destlen)
-{
-    fd_set fds;
-    int n;
-    struct timeval tv;
-
-    // set up the file descriptor set
-    FD_ZERO(&fds);
-    FD_SET(s, &fds);
-
-    // set up the struct timeval for the timeout
-    tv.tv_sec = (int)timeout/1000;
-    tv.tv_usec = (int)(timeout%1000)*1000;
-
-    // wait until timeout or data received
-    n = select(s+1, &fds, NULL, NULL, &tv);
-    if (n == 0) return -2; // timeout!
-    if (n == -1) return -1; // error
-
-    // data must be here, so do a normal recv()
-    return recvfrom(s, buf, len , 0, dest, destlen);
-}
+        struct sockaddr *dest, int *destlen);
 
 /**
  * Calcula o checksum de um determinado pacote, seguindo a RFC 1071
@@ -93,43 +72,12 @@ int recvtimeout(int s, char *buf, int len, int timeout,
  *
  * @return O valor do checksum contabilizado
  */
-uint16_t checksum(void *hdr, int count)
-{
-    long sum = 0;
-    uint16_t *addr = (uint16_t *)hdr;
-
-    while(count > 1)
-    {
-        sum += *(addr++);
-        count -= 2;
-    }
-
-    while (sum>>16)
-    {
-        sum = (sum & 0xffff) + (sum>>16);
-    }
-
-    if (count > 0)
-        sum += *(uint8_t *)addr;
-        
-    return (uint16_t)~sum;
-}
+uint16_t checksum(void *hdr, int count);
 
 /**
  * Funcao de ajuda que imprime o conteudo de um pacote STDP na tela
  *
  * @param p Ponteiro para o pacote sdtp
  */
-void printpacket(struct sdtphdr *p)
-{
-    printf("\nImprimindo Pacote (%x)\n",p);
-    printf("\tseqnum:   %d\n",p->seqnum);
-    printf("\tacknum:   %d\n",p->acknum);
-    printf("\tdatalen:  %d\n",p->datalen);
-    printf("\tflags:    0x%x\n",p->flags);
-    printf("\twindow:   %d\n",p->window);
-    printf("\tchecksum: 0x%x\n",p->checksum);
-    if (p->datalen)
-        printf("\tdata:     %s\n\n",(char *)p+sizeof(struct sdtphdr));
-}
+void printpacket(struct sdtphdr *p);
 
