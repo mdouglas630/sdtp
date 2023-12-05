@@ -133,13 +133,13 @@ int main(int argc, char *argv[])
         {   
             // enviar os dados
             printf("enviar os dados\n");
-    
+
             // zerando os dados
             memset(data, 0x0, MSS);
 
             // lendo os dados
             size = fread(data, 1, window, loremfile);
-    
+
             // preenchendo o novo pacote
             pout->seqnum   = ackbytes; // seqnum assume o ack antigo
             pout->acknum   = 0;        // zerando o ack
@@ -147,31 +147,110 @@ int main(int argc, char *argv[])
             pout->flags    = 0x0;      // zerando as flags
             pout->window   = 0;        // zerando a janela
             pout->checksum = 0;        // zerando o checksum
-            // calculando o checksum
             pout->checksum = checksum(
-                    (void *)pout, size+sizeof(struct sdtphdr));
-    
-            printf("meu checksum: %d (%d bytes)\n",pout->checksum, 
-                    size+sizeof(struct sdtphdr));
+                    (void *)pout, sizeof(struct sdtphdr) + size); // calculando o checksum
 
-            ackbytes += size;
-
-            // envio do arquivo finalizou, agora deve-se enviar o FIN
-            if (size == 0)
+            // verificando se chegou ao final do arquivo
+            if (size < window)
             {
-                printf("finalizou o envio do arquivo! enviar FIN\n");
+                // mudando o estado para 3
                 state = 3;
+                // setando a flag FIN
+                pout->flags |= TH_FIN;
+            }
+
+            // enviando o pacote
+            sendto(meusocket, buffer_out, sizeof(struct sdtphdr) + size, 0,
+                    (struct sockaddr *)&destinatario, sockettamanho);
+
+            // recebendo a confirmacao
+            numbytes = recvtimeout(meusocket, buffer_in, MAXSDTP, 1000,
+                    (struct sockaddr *)&destinatario, &sockettamanho);
+
+            // verificando se houve timeout ou erro
+            if (numbytes <= 0)
+            {
+                // reenviando o pacote
+                continue;
+            }
+
+            // verificando se o pacote recebido tem a flag ACK e o numero de sequencia esperado
+            if ((pin->flags & TH_ACK) && (pin->acknum == ackbytes + size))
+            {
+                // atualizando o numero de bytes confirmados
+                ackbytes += size;
+                // atualizando a janela
+                window = pin->window;
+            }
+            else
+            {
+                // reenviando o pacote
                 continue;
             }
         }
         else if (state == 3)
         {
-            printf("PACOTE FIN\n");
-            
-            // montar pacote FIN
-            //
-            // falta fazer
+            // enviar o pacote FIN
+            printf("enviar o pacote FIN\n");
+
+            // preenchendo o novo pacote
+            pout->seqnum   = ackbytes; // seqnum assume o ack antigo
+            pout->acknum   = 0;        // zerando o ack
+            pout->datalen  = 0;        // zerando o tamanho dos dados
+            pout->flags    = TH_FIN;   // setando a flag FIN
+            pout->window   = 0;        // zerando a janela
+            pout->checksum = 0;        // zerando o checksum
+            pout->checksum = checksum(
+                    (void *)pout, sizeof(struct sdtphdr)); // calculando o checksum
+
+            // enviando o pacote
+            sendto(meusocket, buffer_out, sizeof(struct sdtphdr), 0,
+                    (struct sockaddr *)&destinatario, sockettamanho);
+
+            // recebendo a confirmacao
+            numbytes = recvtimeout(meusocket, buffer_in, MAXSDTP, 1000,
+                    (struct sockaddr *)&destinatario, &sockettamanho);
+
+            // verificando se houve timeout ou erro
+            if (numbytes <= 0)
+            {
+                // reenviando o pacote
+                continue;
+            }
+
+            // verificando se o pacote recebido tem a flag ACK e o numero de sequencia esperado
+            if ((pin->flags & TH_ACK) && (pin->acknum == ackbytes + 1))
+            {
+                // enviando o ultimo pacote ACK
+                printf("enviar o ultimo pacote ACK\n");
+
+                // preenchendo o novo pacote
+                pout->seqnum   = ackbytes + 1; // seqnum assume o ack anterior + 1
+                pout->acknum   = 0;            // zerando o ack
+                pout->datalen  = 0;            // zerando o tamanho dos dados
+                pout->flags    = TH_ACK;       // setando a flag ACK
+                pout->window   = 0;            // zerando a janela
+                pout->checksum = 0;            // zerando o checksum
+                pout->checksum = checksum(
+                        (void *)pout, sizeof(struct sdtphdr)); // calculando o checksum
+
+                // enviando o pacote
+                sendto(meusocket, buffer_out, sizeof(struct sdtphdr), 0,
+                        (struct sockaddr *)&destinatario, sockettamanho);
+
+                // fechando o socket e o arquivo
+                printf("fechando o socket e o arquivo\n");
+                close(meusocket);
+                fclose(loremfile);
+                break; // saindo do loop
+            }
+            else
+            {
+                // reenviando o pacote
+                continue;
+            }
         }
+
         
         // imprimindo pacote
         printf("DEBUG - PACOTE A ENVIAR");
@@ -211,10 +290,116 @@ int main(int argc, char *argv[])
             printf("DEBUG - PACOTE RECEBIDO");
             printpacket(pin);
 
-            // deve se verificar o checksum do pacote recebido
+            // recebendo o pacote
+            numbytes = recvfrom(meusocket, buffer_in, MAXSDTP, 0,
+                    (struct sockaddr *)&destinatario, &sockettamanho);
 
-            // deve se verificar o tipo do pacote recebido, se eh de
-            // sincronizacao, ou ja sao dados
+            // verificando se houve erro na recepcao
+            if (numbytes == -1)
+            {
+                // tratando o erro
+                perror("recvfrom");
+                exit(1);
+            }
+
+            // calculando o checksum do pacote recebido
+            uint16_t checksum_recebido = checksum(
+                    (void *)pin, sizeof(struct sdtphdr) + pin->datalen);
+
+            // comparando com o valor do campo checksum do pacote
+            if (checksum_recebido != pin->checksum)
+            {
+                // pacote corrompido, descartando
+                printf("pacote corrompido, descartando\n");
+                continue;
+            }
+
+            // pacote integro, verificando o tipo do pacote
+            if (pin->flags & TH_SYN)
+            {
+                // pacote de sincronizacao, verificando o subtipo
+                if (pin->flags & TH_ACK)
+                {
+                    // pacote SYN-ACK, verificando o estado atual
+                    if (state == 0)
+                    {
+                        // estado 0, recebendo o SYN-ACK do servidor
+                        printf("recebendo o SYN-ACK do servidor\n");
+                        // mudando o estado para 1
+                        state = 1;
+                        // obtendo a janela do servidor
+                        window = pin->window;
+                    }
+                    else
+                    {
+                        // estado invalido, descartando o pacote
+                        printf("estado invalido, descartando o pacote\n");
+                        continue;
+                    }
+                }
+                else
+                {
+                    // pacote SYN, descartando o pacote
+                    printf("pacote SYN, descartando o pacote\n");
+                    continue;
+                }
+            }
+            else if (pin->flags & TH_ACK)
+            {
+                // pacote ACK, verificando o estado atual
+                if (state == 1)
+                {
+                    // estado 1, recebendo o ACK do servidor
+                    printf("recebendo o ACK do servidor\n");
+                    // mudando o estado para 2
+                    state = 2;
+                }
+                else if (state == 3)
+                {
+                    // estado 3, recebendo o ACK do servidor
+                    printf("recebendo o ACK do servidor\n");
+                    // mudando o estado para 4
+                    state = 4;
+                }
+                else
+                {
+                    // estado invalido, descartando o pacote
+                    printf("estado invalido, descartando o pacote\n");
+                    continue;
+                }
+            }
+            else
+            {
+                // pacote de dados, verificando o estado atual
+                if (state == 2 || state == 4)
+                {
+                    // estado 2 ou 4, recebendo os dados do servidor
+                    printf("recebendo os dados do servidor\n");
+                    // lendo os dados do pacote
+                    printf("data: %s\n", (char *)pin + sizeof(struct sdtphdr));
+                    // enviando o ACK para o servidor
+                    printf("enviando o ACK para o servidor\n");
+                    // preenchendo o novo pacote
+                    pout->seqnum   = 0; // zerando o seqnum
+                    pout->acknum   = pin->seqnum + pin->datalen; // acknum assume o seqnum do pacote recebido mais o tamanho dos dados
+                    pout->datalen  = 0; // zerando o tamanho dos dados
+                    pout->flags    = TH_ACK; // setando a flag ACK
+                    pout->window   = 0; // zerando a janela
+                    pout->checksum = 0; // zerando o checksum
+                    pout->checksum = checksum(
+                            (void *)pout, sizeof(struct sdtphdr)); // calculando o checksum
+                    // enviando o pacote
+                    sendto(meusocket, buffer_out, sizeof(struct sdtphdr), 0,
+                            (struct sockaddr *)&destinatario, sockettamanho);
+                }
+                else
+                {
+                    // estado invalido, descartando o pacote
+                    printf("estado invalido, descartando o pacote\n");
+                    continue;
+                }
+            }
+
         }
 
     }
